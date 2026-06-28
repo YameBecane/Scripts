@@ -1,8 +1,8 @@
-// DIGITADOR INSTANTÂNEO - Mesmo método funcionando, mas super rápido
+// DIGITADOR INSTANTÂNEO - Digita tudo de uma vez (mesmo método que funciona)
 (function() {
     'use strict';
 
-    const NS = '__digitadorRapido__';
+    const NS = '__digitadorTurbo__';
 
     // ---- Limpeza ----
     if (window[NS]) {
@@ -19,13 +19,83 @@
         aguardandoCampo: false,
         listenerInstalado: false,
         onDocClick: null,
-        typingTimeoutId: null,
-        currentElement: null,
-        currentText: '',
-        currentIndex: 0
+        typingTimeoutId: null
     };
 
-    // ---- Listener de clique ----
+    // ============================================
+    // FUNÇÃO QUE INSERE TUDO DE UMA VEZ
+    // ============================================
+    function inserirTextoInstantaneo(el, texto) {
+        // Salva o texto original para referência
+        const textoOriginal = texto;
+        
+        // ===== PARA INPUT E TEXTAREA =====
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            // Insere o texto completo
+            el.value = texto;
+            
+            // Move o cursor para o final
+            try {
+                el.setSelectionRange(texto.length, texto.length);
+            } catch(_) {}
+            
+            // Dispara eventos (CRUCIAIS para o site detectar)
+            el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+            
+            // Dispara eventos de teclado
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keypress', { key: 'a', bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+            
+            // ===== PARA REACT =====
+            if (el._reactInternalInstance || el.__reactInternalInstance) {
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value'
+                )?.set;
+                if (nativeSetter) {
+                    nativeSetter.call(el, el.value);
+                }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            
+            // ===== PARA VUE =====
+            if (el.__vue__ || el._vnode) {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            
+            // ===== PARA ANGULAR =====
+            if (el.ngControl || el._ngZone) {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            
+        // ===== PARA CONTENTEDITABLE =====
+        } else if (el.isContentEditable) {
+            el.innerText = texto;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // Dispara evento de foco/blur para garantir
+        try {
+            el.dispatchEvent(new Event('focus', { bubbles: true }));
+            el.dispatchEvent(new Event('blur', { bubbles: true }));
+            el.dispatchEvent(new Event('focusout', { bubbles: true }));
+        } catch(_) {}
+
+        // Força o scroll para o final
+        try {
+            el.scrollTop = el.scrollHeight;
+        } catch(_) {}
+
+        console.log('✅ Texto inserido instantaneamente!');
+        console.log(`📝 ${texto.length} caracteres inseridos`);
+    }
+
+    // ============================================
+    // LISTENER DE CLIQUE
+    // ============================================
     function ensureListenerInstalled() {
         if (window[NS].listenerInstalado && window[NS].onDocClick) {
             document.removeEventListener('click', window[NS].onDocClick, true);
@@ -35,26 +105,26 @@
         const onDocClick = (e) => {
             if (!window[NS].aguardandoCampo) return;
 
-            const path = e.composedPath ? e.composedPath() : [];
-            if (path.some(n => n && n.id && String(n.id).startsWith('digitadorV2-'))) return;
-
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-
             window[NS].aguardandoCampo = false;
 
             const el = e.target;
+            
+            // Verifica se é um campo de texto válido
             if (!(el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'))) {
                 alert('❌ Isso não é um campo de texto!');
                 return;
             }
 
             const texto = prompt('📋 Cole ou digite o texto:');
-            if (texto == null) return;
+            if (texto == null || texto.trim() === '') {
+                alert('❌ Texto vazio!');
+                return;
+            }
 
-            // Velocidade MÁXIMA (1ms entre caracteres) - parece instantâneo
-            iniciarDigitacao(el, texto, 1);
+            // ===== INSERE TUDO DE UMA VEZ =====
+            alert('🚀 Inserindo texto...');
+            inserirTextoInstantaneo(el, texto);
+            alert('✅ Texto inserido com sucesso!');
         };
 
         window[NS].onDocClick = onDocClick;
@@ -62,138 +132,107 @@
         window[NS].listenerInstalado = true;
     }
 
-    // ---- Funções de inserção ----
-    function inserirCharEmInput(el, ch) {
-        try {
-            let pos = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
-
-            if (typeof el.setRangeText === 'function') {
-                el.setRangeText(ch, pos, pos, 'end');
-            } else {
-                const v = el.value || '';
-                const before = v.slice(0, pos);
-                const after = v.slice(pos);
-                el.value = before + ch + after;
-                const newPos = pos + ch.length;
-                try { el.setSelectionRange(newPos, newPos); } catch (_) {}
-            }
-        } catch (err) {
-            el.value = (el.value || '') + ch;
+    // ============================================
+    // FUNÇÃO PARA INSERIR NO CAMPO SELECIONADO
+    // ============================================
+    function inserirNoCampoSelecionado() {
+        const el = document.activeElement;
+        
+        if (!el) {
+            alert('❌ Nenhum campo selecionado! Clique no campo primeiro.');
+            return;
         }
+
+        if (!(el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+            alert('❌ O elemento selecionado não é um campo de texto!');
+            return;
+        }
+
+        const texto = prompt('📋 Cole ou digite o texto:');
+        if (texto == null || texto.trim() === '') {
+            alert('❌ Texto vazio!');
+            return;
+        }
+
+        alert('🚀 Inserindo texto...');
+        inserirTextoInstantaneo(el, texto);
+        alert('✅ Texto inserido com sucesso!');
     }
 
-    function inserirCharEmContentEditable(el, ch) {
-        try {
-            const doc = el.ownerDocument || document;
-            const sel = doc.getSelection ? doc.getSelection() : null;
-            let range;
-            if (sel && sel.rangeCount) {
-                range = sel.getRangeAt(0).cloneRange();
-                if (!el.contains(range.commonAncestorContainer)) {
-                    range = null;
-                }
-            }
-            if (!range) {
-                range = doc.createRange();
-                range.selectNodeContents(el);
-                range.collapse(false);
-            }
-            const txtNode = doc.createTextNode(ch);
-            range.insertNode(txtNode);
-            range.setStartAfter(txtNode);
-            range.collapse(true);
-            if (sel) {
-                sel.removeAllRanges();
-                sel.addRange(range);
-            }
-        } catch (err) {
-            el.innerText = (el.innerText || '') + ch;
+    // ============================================
+    // FUNÇÃO PARA INSERIR DIRETO (sem prompt)
+    // ============================================
+    function inserirTextoDireto(texto) {
+        const el = document.activeElement;
+        
+        if (!el) {
+            alert('❌ Nenhum campo selecionado!');
+            return;
         }
+
+        if (!(el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+            alert('❌ O elemento selecionado não é um campo de texto!');
+            return;
+        }
+
+        inserirTextoInstantaneo(el, texto);
+        alert('✅ Texto inserido com sucesso!');
     }
 
-    // ---- Função principal de digitação (velocidade máxima) ----
-    function iniciarDigitacao(el, texto, velocidade) {
-        if (window[NS].typingTimeoutId) {
-            clearTimeout(window[NS].typingTimeoutId);
-            window[NS].typingTimeoutId = null;
-        }
-
-        window[NS].currentElement = el;
-        window[NS].currentText = texto;
-        window[NS].currentIndex = 0;
-
-        const isInputEl = (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
-        const isContentEditable = !!el.isContentEditable;
-
-        let prevReadOnly = null;
-        try {
-            if (isInputEl) {
-                prevReadOnly = el.readOnly;
-                el.readOnly = true;
-                try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
-                try {
-                    const len = el.value ? el.value.length : 0;
-                    el.setSelectionRange(len, len);
-                } catch (_) {}
-            }
-        } catch (_) {}
-
-        let i = 0;
-
-        function digitarProximoCaractere() {
-            if (i < texto.length) {
-                const c = texto[i++];
-
-                if (isInputEl) {
-                    inserirCharEmInput(el, c);
-                } else if (isContentEditable) {
-                    inserirCharEmContentEditable(el, c);
-                } else {
-                    try { el.innerText = (el.innerText || '') + c; } catch (_) {}
-                }
-
-                try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-                if (i % 50 === 0) {
-                    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-                }
-
-                window[NS].currentIndex = i;
-                
-                // Velocidade MÁXIMA - 1ms entre caracteres (quase instantâneo)
-                window[NS].typingTimeoutId = setTimeout(digitarProximoCaractere, velocidade || 1);
-            } else {
-                window[NS].typingTimeoutId = null;
-
-                try {
-                    if (isInputEl) {
-                        try { el.blur(); } catch (_) {}
-                        if (prevReadOnly !== null && typeof prevReadOnly !== 'undefined') {
-                            try { el.readOnly = prevReadOnly; } catch (_) {}
-                        } else {
-                            try { el.readOnly = false; } catch (_) {}
-                        }
-                    }
-                } catch (_) {}
-
-                try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
-                try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
-
-                alert('✅ Texto digitado instantaneamente!');
-            }
-        }
-
-        alert('🚀 Digitando em velocidade máxima...');
-        window[NS].typingTimeoutId = setTimeout(digitarProximoCaractere, 10);
-    }
-
-    // ---- API ----
+    // ============================================
+    // API PÚBLICA
+    // ============================================
     window.digitarInstantaneo = function() {
         ensureListenerInstalled();
         window[NS].aguardandoCampo = true;
-        alert('✍️ Clique no campo onde deseja digitar o texto.');
+        alert('✍️ Clique no campo onde deseja inserir o texto.');
     };
 
-    // ---- Inicia ----
-    window.digitarInstantaneo();
+    window.inserirTexto = function(texto) {
+        if (!texto) {
+            alert('❌ Forneça o texto: inserirTexto("Seu texto aqui")');
+            return;
+        }
+        inserirTextoDireto(texto);
+    };
+
+    window.inserirNoCampo = function() {
+        inserirNoCampoSelecionado();
+    };
+
+    // ============================================
+    // ATALHOS DE TECLADO
+    // ============================================
+    document.addEventListener('keydown', (e) => {
+        // Ctrl+Shift+I - Iniciar (modo clique)
+        if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+            e.preventDefault();
+            window.digitarInstantaneo();
+        }
+        // Ctrl+Shift+Insert - Inserir no campo selecionado
+        if (e.ctrlKey && e.shiftKey && e.key === 'Insert') {
+            e.preventDefault();
+            window.inserirNoCampo();
+        }
+    });
+
+    // ============================================
+    // INICIALIZAÇÃO
+    // ============================================
+    console.log('🚀 DIGITADOR INSTANTÂNEO carregado!');
+    console.log('📝 Como usar:');
+    console.log('  1. digitarInstantaneo() - Clique no campo, depois cole o texto');
+    console.log('  2. inserirNoCampo() - Insere no campo já selecionado');
+    console.log('  3. inserirTexto("texto") - Insere texto diretamente');
+    console.log('⌨️ Atalhos:');
+    console.log('  Ctrl+Shift+I - Iniciar (modo clique)');
+    console.log('  Ctrl+Shift+Insert - Inserir no campo selecionado');
+
+    // Pergunta se quer iniciar
+    setTimeout(() => {
+        if (confirm('🚀 Digitador Instantâneo carregado!\n\nIniciar agora?')) {
+            window.digitarInstantaneo();
+        }
+    }, 500);
 
 })();
